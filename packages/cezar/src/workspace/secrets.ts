@@ -17,6 +17,7 @@ import {
 } from '@open-mercato/cezar-contract';
 import { assertCezarHomeWriteIsSandboxed, cezarHomeDir } from '../paths.ts';
 import { PROJECT_ID_RE } from './config.ts';
+import { entriesIn, readSecretsExport, SECRETS_EXPORT_ENV, type SecretsExport } from './secrets-export.ts';
 import { keychainStatus, KEYCHAIN_ACCOUNT, type DataKeyring } from './secret-keyring.ts';
 
 /**
@@ -117,9 +118,11 @@ export class SecretStore {
   private readonly directory: string;
   private readonly keychainFactory: (account: string) => Promise<DataKeyring | null>;
   private readonly keychainReason: () => Promise<string>;
+  private readonly exportFile: string | undefined;
 
   constructor(env: NodeJS.ProcessEnv = process.env, options: SecretStoreOptions = {}) {
     this.directory = join(cezarHomeDir(env), 'secrets');
+    this.exportFile = env[SECRETS_EXPORT_ENV]?.trim() || undefined;
     this.keychainFactory = options.keychain ?? (async account => (await keychainStatus(env, account)).keyring);
     this.keychainReason = options.keychainReason ?? (async () => {
       const status = await keychainStatus(env);
@@ -147,6 +150,7 @@ export class SecretStore {
    * pick. The cockpit shows this next to the list so a file fallback is never silent.
    */
   async keyBackend(): Promise<SecretKeyBackend> {
+    if (this.exportFile) return 'keychain';
     try {
       const found = await this.loadDataKey();
       if (found) return found.backend;
@@ -184,7 +188,15 @@ export class SecretStore {
   }
 
   /** Stored entries, sorted by name. Absent or unreadable storage is an empty list, never a throw. */
-  async list(scope: SecretScopeRef): Promise<{ secrets: SecretEntry[]; skipped?: string }> {
+  async list(scope: SecretScopeRef): Promise<{ secrets: SecretEntry[]; skipped?: string; readOnly?: true; exportedAt?: string }> {
+    if (this.exportFile) {
+      try {
+        const exported = await readSecretsExport(this.exportFile);
+        return { secrets: entriesIn(exported, scope), readOnly: true, exportedAt: exported.exportedAt };
+      } catch (error) {
+        return { secrets: [], skipped: (error as Error).message, readOnly: true };
+      }
+    }
     const read = await this.read(scope);
     // Undecryptable entries still list by name, so they can be unset after a lost key.
     const entries = read.skipped ? await this.storedMetadata(scope) : read.values;
@@ -211,7 +223,7 @@ export class SecretStore {
    */
   async read(scope: SecretScopeRef): Promise<SecretsRead & { values: Record<string, { value: string; audiences: SecretAudience[]; updatedAt: string; binding?: SecretBinding }> }> {
     const id = fileId(scope);
-    if (!id) return { values: {} };
+    if (!id || this.exportFile) return { values: {} };
     let file: SecretFile;
     try {
       await this.checkDirectory();
@@ -262,6 +274,7 @@ export class SecretStore {
     audiences: readonly SecretAudience[] = DEFAULT_AUDIENCES,
     binding?: SecretBinding,
   ): Promise<void> {
+    this.refuseWriteInExportMode();
     const issue = secretNameIssue(name) ?? secretValueIssue(value);
     if (issue) throw new SecretsError(issue);
     const admitted = [...new Set(audiences)].filter((a): a is SecretAudience => (SECRET_AUDIENCES as readonly string[]).includes(a));
@@ -283,6 +296,7 @@ export class SecretStore {
 
   /** Remove `name`. `false` when it was not stored — the route answers 404. */
   async unset(scope: SecretScopeRef, name: string): Promise<boolean> {
+    this.refuseWriteInExportMode();
     return this.update(scope, (file) => {
       if (!(name in file.secrets)) return false;
       delete file.secrets[name];
@@ -362,6 +376,33 @@ export class SecretStore {
       else secrets.push({ name, value: entry.value, binding: entry.binding });
     }
     return problems.length ? { secrets: [], problems } : { secrets, problems };
+  }
+
+  /** True when this store only mirrors a host's metadata export (fork issue #5): nothing is written or decrypted. */
+  get readOnly(): boolean {
+    return this.exportFile !== undefined;
+  }
+
+  /** The metadata of every scope in this home's store, for a host to write as the export. */
+  async exportMetadata(): Promise<SecretsExport> {
+    const exported: SecretsExport = { version: 1, exportedAt: new Date().toISOString(), workspace: [], projects: {} };
+    let names: string[] = [];
+    try { await this.checkDirectory(); names = await fs.readdir(this.directory); } catch { return exported; }
+    for (const name of names.filter((n) => n.endsWith('.json')).sort()) {
+      const id = name.slice(0, -'.json'.length);
+      let file: SecretFile;
+      try { file = parseSecretFile(await this.readFile(this.file(id))); } catch { continue; }
+      const entries = Object.entries(file.secrets)
+        .filter(([secret]) => !secretNameIssue(secret))
+        .map(([secret, entry]) => ({ name: secret, audiences: entry.audiences, updatedAt: entry.updatedAt, ...(entry.binding ? { binding: entry.binding } : {}) }));
+      if (id === 'workspace') exported.workspace = entries;
+      else if (PROJECT_ID_RE.test(id)) exported.projects[id] = entries;
+    }
+    return exported;
+  }
+
+  private refuseWriteInExportMode(): void {
+    if (this.exportFile) throw new SecretsError('secrets are read-only here — change them with `cezar secrets` on the host');
   }
 
   private file(id: string): string {

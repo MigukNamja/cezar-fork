@@ -1,12 +1,14 @@
+import { promises as fs } from 'node:fs';
 import { realpath } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { SECRET_AUDIENCES, SECRET_BINDING_SCHEMES, secretBindingSchema, secretNameIssue, type SecretAudience, type SecretBinding } from '@open-mercato/cezar-contract';
 import { SecretStore, SecretsError, type SecretScopeRef } from './secrets.ts';
 import { loadWorkspaceConfig } from './config.ts';
 import { runImportSandcastle } from './secrets-import.ts';
 
-const USAGE = 'Usage: cezar secrets list | set <NAME> [--audience checks,cezar] | unset <NAME> | resolve <NAME>... | import-sandcastle   [--workspace] [--repo <dir>]\n' +
+const USAGE = 'Usage: cezar secrets list | set <NAME> [--audience checks,cezar] | unset <NAME> | resolve <NAME>... | import-sandcastle | export --out <file>   [--workspace] [--repo <dir>]\n' +
   '  import-sandcastle copies run-pi-in-colima\'s ~/.sandcastle-secrets into proxy secrets (dry run unless --apply); run it with a bad flag for its usage.\n' +
+  '  export --out <file> writes names, hosts and headers of every scope — no values — for a container that sets CEZ_SECRETS_EXPORT to read.\n' +
   '  set --audience proxy --host a.example,b.example --header Authorization --scheme bearer|basic|raw [--sentinel ENV_NAME]\n' +
   '  resolve prints `NAME value` for named proxy secrets to a pipe, only with an OS-keychain key (or --allow-file-key).\n' +
   '  set reads the value from stdin (pipe it in, or type it at the hidden prompt) — never from argv.\n' +
@@ -43,6 +45,7 @@ export async function runSecretsCommand(
       return project ? { kind: 'project', projectId: project.id, root: project.root } : undefined;
     });
   }
+  if (args[0] === 'export') return runExport(args.slice(1), io, store);
   const parsed = parseArgs(args);
   if (!parsed) {
     io.error(USAGE);
@@ -256,4 +259,25 @@ async function readValueFromStdin(): Promise<string> {
     };
     stdin.on('data', onData);
   });
+}
+
+/** `export --out <file>`: the metadata-only mirror a container reads (fork issue #5). Never a value or ciphertext. */
+async function runExport(args: string[], io: SecretsCliIo, store: SecretStore): Promise<number> {
+  const out = args.length === 2 && args[0] === '--out' ? args[1] : undefined;
+  if (!out) {
+    io.error('usage: cezar secrets export --out <file>');
+    return 1;
+  }
+  try {
+    const exported = await store.exportMetadata();
+    const temporary = `${out}.${process.pid}.tmp`;
+    await fs.mkdir(dirname(out), { recursive: true });
+    await fs.writeFile(temporary, `${JSON.stringify(exported, null, 2)}\n`, { mode: 0o644 });
+    await fs.rename(temporary, out);
+    io.log(`${out}\t${exported.workspace.length + Object.values(exported.projects).reduce((n, list) => n + list.length, 0)} secrets`);
+    return 0;
+  } catch {
+    io.error('cezar secrets: cannot write the export — check the path and its permissions.');
+    return 1;
+  }
 }

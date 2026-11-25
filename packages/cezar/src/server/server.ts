@@ -7522,9 +7522,18 @@ export function createApp(deps: ServerDeps) {
   const unregisteredSecrets = { error: 'this project is not registered; project secrets need a project id' };
   const secretsList = async (scope: SecretScopeRef): Promise<SecretsList> => {
     const [listed, keyBackend] = await Promise.all([secretStore.list(scope), secretStore.keyBackend()]);
-    return { secrets: listed.secrets, keyBackend, ...(listed.skipped ? { skipped: listed.skipped } : {}) };
+    return {
+      secrets: listed.secrets,
+      keyBackend,
+      ...(listed.skipped ? { skipped: listed.skipped } : {}),
+      ...(listed.readOnly ? { readOnly: true } : {}),
+      ...(listed.exportedAt ? { exportedAt: listed.exportedAt } : {}),
+    };
   };
+  // Fork issue #5: against a host's metadata export a route cannot write, and the refusal needs no key.
+  const readOnlySecrets = { status: 403 as const, error: 'Secrets are read-only here. Change them with `cezar secrets` on the host.' };
   const putSecret = async (scope: SecretScopeRef, name: string, input: SecretValueInput) => {
+    if (secretStore.readOnly) return readOnlySecrets;
     try {
       await secretStore.set(scope, name, input.value, input.audiences, input.binding);
     } catch (error) {
@@ -7534,6 +7543,7 @@ export function createApp(deps: ServerDeps) {
     return null;
   };
   const deleteSecret = async (scope: SecretScopeRef, name: string) => {
+    if (secretStore.readOnly) return readOnlySecrets;
     let removed: boolean;
     try {
       removed = await secretStore.unset(scope, name);

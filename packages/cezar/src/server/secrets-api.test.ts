@@ -151,4 +151,47 @@ describe('secrets API (spec 2026-10-10-project-secrets-vault-options)', () => {
     expect((await apiRequest(instance, '/api/v1/secrets/KEY', { method: 'DELETE' })).status).toBe(409);
     expect((await apiRequest(instance, '/api/v1/workspace/secrets/KEY', put({ value: 'value' }))).status).toBe(204);
   });
+
+  it('mirrors a host export read-only: lists metadata, refuses every write (fork issue #5)', async () => {
+    const hostHome = join(root, 'host-home');
+    vi.stubEnv('CEZ_HOME', hostHome);
+    const hostStore = new SecretStore(process.env, { keychain: async () => null });
+    const { id } = await app();
+    await hostStore.set({ kind: 'workspace' }, 'SHARED', 'workspace-value-123', ['proxy'], { hosts: ['api.example.com'], header: 'Authorization', scheme: 'bearer' });
+    await hostStore.set({ kind: 'project', projectId: id, root }, 'E2E_KEY', 'secret-value-123');
+    const exportPath = join(root, 'export.json');
+    const { runSecretsCommand } = await import('../workspace/secrets-cli.ts');
+    expect(await runSecretsCommand(['export', '--out', exportPath], { log: () => {}, error: () => {} }, process.env, hostStore)).toBe(0);
+    const exported = readFileSync(exportPath, 'utf8');
+    expect(exported).not.toMatch(/secret-value-123|workspace-value-123|"data"|"tag"|"iv"/);
+
+    vi.stubEnv('CEZ_HOME', join(root, 'container-home'));
+    vi.stubEnv('CEZ_SECRETS_EXPORT', exportPath);
+    const mirror = createApp({ repoRoot: root, store, manager: {} as RunManager, version: 'test', bootProjectId: id, secrets: new SecretStore(process.env) });
+    const project = secretsListSchema.parse(await (await apiRequest(mirror, '/api/v1/secrets')).json());
+    expect(project.readOnly).toBe(true);
+    expect(project.secrets.map((s) => s.name)).toEqual(['E2E_KEY']);
+    const workspace = secretsListSchema.parse(await (await apiRequest(mirror, '/api/v1/workspace/secrets')).json());
+    expect(workspace.secrets[0]?.binding?.hosts).toEqual(['api.example.com']);
+
+    for (const [path, init] of [
+      ['/api/v1/secrets/NEW', put({ value: 'x-value-12345' })],
+      ['/api/v1/secrets/E2E_KEY', { method: 'DELETE' }],
+      ['/api/v1/workspace/secrets/SHARED', put({ value: 'x-value-12345' })],
+      ['/api/v1/workspace/secrets/SHARED', { method: 'DELETE' }],
+    ] as const) {
+      expect((await apiRequest(mirror, path, init)).status).toBe(403);
+    }
+    expect(secretsListSchema.parse(await (await apiRequest(mirror, '/api/v1/workspace/secrets')).json()).secrets).toHaveLength(1);
+  });
+
+  it('says so when the export is missing', async () => {
+    vi.stubEnv('CEZ_SECRETS_EXPORT', join(root, 'absent.json'));
+    const { instance } = await app();
+    const mirror = createApp({ repoRoot: root, store, manager: {} as RunManager, version: 'test', secrets: new SecretStore(process.env) });
+    void instance;
+    const body = secretsListSchema.parse(await (await apiRequest(mirror, '/api/v1/workspace/secrets')).json());
+    expect(body).toMatchObject({ secrets: [], readOnly: true });
+    expect(body.skipped).toContain('cezar secrets export');
+  });
 });
