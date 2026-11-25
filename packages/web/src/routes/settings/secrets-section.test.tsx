@@ -15,13 +15,13 @@ const DEFAULT: Stored[] = [
   { name: 'STAGING_TOKEN', audiences: ['checks', 'cezar'], updatedAt: '2026-10-10T00:00:00Z' },
 ]
 
-function setup(options: { secrets?: Stored[]; putStatus?: number; keyBackend?: 'keychain' | 'file'; scope?: 'project' | 'workspace'; skipped?: string } = {}) {
-  const { secrets = DEFAULT, putStatus = 204, keyBackend = 'keychain', scope = 'project', skipped } = options
+function setup(options: { secrets?: Stored[]; putStatus?: number; keyBackend?: 'keychain' | 'file'; scope?: 'project' | 'workspace'; skipped?: string; readOnly?: boolean } = {}) {
+  const { secrets = DEFAULT, putStatus = 204, keyBackend = 'keychain', scope = 'project', skipped, readOnly = false } = options
   const calls: { method: string; url: string; body?: string }[] = []
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const method = init?.method ?? 'GET'
     calls.push({ method, url: String(input), body: typeof init?.body === 'string' ? init.body : undefined })
-    if (method === 'GET') return new Response(JSON.stringify({ secrets, keyBackend, ...(skipped ? { skipped } : {}) }), { status: 200 })
+    if (method === 'GET') return new Response(JSON.stringify({ secrets, keyBackend, ...(skipped ? { skipped } : {}), ...(readOnly ? { readOnly: true } : {}) }), { status: 200 })
     if (method === 'PUT' && putStatus !== 204) return new Response(JSON.stringify({ error: 'storage failed' }), { status: putStatus })
     return new Response(null, { status: 204 })
   }))
@@ -41,6 +41,16 @@ describe('Secrets settings', () => {
     expect(screen.queryByDisplayValue(/s3cret|sk-/)).toBeNull()
     expect((screen.getByLabelText('Value') as HTMLInputElement).value).toBe('')
     expect(screen.getByLabelText('Value').getAttribute('type')).toBe('password')
+  })
+
+  it('shows a host export with no edit, delete or add controls and says edits happen on the host', async () => {
+    setup({ readOnly: true })
+    await screen.findByText('OPENAI_API_KEY')
+    expect(screen.getByText(/read-only copy written by the host/)).toBeTruthy()
+    expect(screen.getByText(/cezar secrets/)).toBeTruthy()
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.queryByLabelText('Value')).toBeNull()
+    expect(screen.queryByText(/keychain/)).toBeNull()
   })
 
   it('says why listed secrets cannot be read', async () => {

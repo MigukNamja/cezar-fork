@@ -60,3 +60,6 @@ export function keyBackendNote(keyBackend: SecretsList['keyBackend']): string {
 
 export const FILE_KEY_PROXY_NOTE =
   'Proxy secrets cannot be used while the data key is a file: the Vito launcher refuses a file key and will not resolve them. Make an OS keychain available to use them.'
+
+export const READ_ONLY_NOTE =
+  'This list is a read-only copy written by the host. Add, change or remove secrets with `cezar secrets` on the host; values and keys never enter this container.'

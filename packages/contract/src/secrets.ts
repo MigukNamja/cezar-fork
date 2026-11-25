@@ -172,6 +172,10 @@ export const secretsListSchema = z.object({
   keyBackend: secretKeyBackendSchema,
   /** Why stored values cannot be read right now (e.g. the data key is unavailable); names still list. */
   skipped: z.string().optional(),
+  /** Fork issue #5: set when the list is a host-written export and every write route is refused. */
+  readOnly: z.boolean().optional(),
+  /** When the host wrote the export this list reads. */
+  exportedAt: z.string().optional(),
 });
 export type SecretsList = z.infer<typeof secretsListSchema>;
 

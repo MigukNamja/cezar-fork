@@ -14,7 +14,7 @@ import { toast } from '@/components/ui/toaster'
 import { LoadingState, RowsSkeleton } from '@/components/loading-state'
 import { CardNote, FormRow, SettingsCard } from './form-row'
 import {
-  EMPTY_BINDING_FIELDS, FILE_KEY_PROXY_NOTE, bindingSummary, fieldsOf, keyBackendNote, parseBinding, usageSummary,
+  EMPTY_BINDING_FIELDS, FILE_KEY_PROXY_NOTE, READ_ONLY_NOTE, bindingSummary, fieldsOf, keyBackendNote, parseBinding, usageSummary,
   type BindingFields,
 } from './secrets-binding'
 import { SecretBindingFields } from './secrets-binding-fields'
@@ -82,13 +82,15 @@ function SecretsSection({ scope, list, save, remove, invalidate }: SecretsSectio
     ? 'Values for this project only — an e2e runner’s model key, a staging login. Each is sent only to the hosts you name, through the proxy, and never reaches an agent session.'
     : 'Values shared by every project on this machine — a key cezar’s own features use, a token every project’s checks need. A project secret of the same name wins. Each is sent only to the hosts you name, through the proxy, and never reaches an agent session.'
   const secrets = list.data?.secrets ?? []
+  const readOnly = list.data?.readOnly === true
 
   return (
     <div className="flex w-full flex-col gap-5" data-slot="secrets-settings" data-scope={scope}>
       <SettingsCard title={title} description={intro}>
         {list.isPending ? <LoadingState label="Loading secrets…" className="p-4"><RowsSkeleton rows={2} /></LoadingState> : null}
         {list.isError ? <p role="alert" className="px-4 py-3 text-ui text-danger">{list.error?.message}</p> : null}
-        {list.data && secrets.length === 0 ? <CardNote slot="secrets-empty">
+        {readOnly ? <CardNote slot="secrets-readonly">{READ_ONLY_NOTE}{list.data?.exportedAt ? ` Exported ${list.data.exportedAt}.` : ''}</CardNote> : null}
+        {list.data && secrets.length === 0 && !readOnly ? <CardNote slot="secrets-empty">
           No secrets stored. Already have run-pi-in-colima credentials in ~/.sandcastle-secrets? Run <code className="font-mono">cezar secrets import-sandcastle{scope === 'workspace' ? ' --workspace' : ''}</code> in a terminal (a dry run until you add <code className="font-mono">--apply</code>).
         </CardNote> : null}
         {list.data && secrets.length > 0 ? (
@@ -98,7 +100,7 @@ function SecretsSection({ scope, list, save, remove, invalidate }: SecretsSectio
                 <tr className="border-b border-border text-left text-label text-soft-foreground">
                   <th scope="col" className="px-4 py-2 font-medium">Name</th>
                   <th scope="col" className="px-4 py-2 font-medium">Sent to</th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium"><span className="sr-only">Actions</span></th>
+                  {readOnly ? null : <th scope="col" className="px-4 py-2 text-right font-medium"><span className="sr-only">Actions</span></th>}
                 </tr>
               </thead>
               <tbody>
@@ -110,25 +112,26 @@ function SecretsSection({ scope, list, save, remove, invalidate }: SecretsSectio
                         ? <span className="font-mono text-meta" data-slot="secret-binding">{bindingSummary(stored.binding)}</span>
                         : usageSummary(stored.audiences)}
                     </td>
-                    <td className="px-4 py-2 text-right whitespace-nowrap">
+                    {readOnly ? null : <td className="px-4 py-2 text-right whitespace-nowrap">
                       <Button variant="ghost" size="xs" aria-label={stored.binding ? `Edit ${stored.name}` : `Convert ${stored.name} to a proxy secret`} onClick={() => startEdit(stored)}>
                         <PencilIcon /> {stored.binding ? 'Edit' : 'Convert'}
                       </Button>
                       <Button variant="danger-ghost" size="xs" aria-label={`Delete ${stored.name}`} disabled={removing.isPending} onClick={() => removing.mutate(stored.name)}>
                         <Trash2Icon /> Delete
                       </Button>
-                    </td>
+                    </td>}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : null}
-        {list.data?.skipped ? <p role="alert" className="px-4 py-2 text-meta text-danger" data-slot="secrets-skipped">Stored values cannot be read: {list.data.skipped}.</p> : null}
-        {list.data ? <CardNote slot="key-backend">{keyBackendNote(list.data.keyBackend)}</CardNote> : null}
-        {list.data?.keyBackend === 'file' ? <CardNote slot="key-backend-proxy">{FILE_KEY_PROXY_NOTE}</CardNote> : null}
+        {readOnly && list.data?.skipped ? <p role="alert" className="px-4 py-2 text-meta text-danger" data-slot="secrets-skipped">{list.data.skipped}.</p> : null}
+        {list.data?.skipped && !readOnly ? <p role="alert" className="px-4 py-2 text-meta text-danger" data-slot="secrets-skipped">Stored values cannot be read: {list.data.skipped}.</p> : null}
+        {list.data && !readOnly ? <CardNote slot="key-backend">{keyBackendNote(list.data.keyBackend)}</CardNote> : null}
+        {list.data?.keyBackend === 'file' && !readOnly ? <CardNote slot="key-backend-proxy">{FILE_KEY_PROXY_NOTE}</CardNote> : null}
 
-        <form autoComplete="off" onSubmit={(event) => { event.preventDefault(); submit() }}>
+        {readOnly ? null : <form autoComplete="off" onSubmit={(event) => { event.preventDefault(); submit() }}>
           <FormRow
             stacked
             label="Add or replace a secret"
@@ -160,7 +163,7 @@ function SecretsSection({ scope, list, save, remove, invalidate }: SecretsSectio
               {editing ? <Button type="button" variant="ghost" size="sm" className="ml-2" onClick={resetForm}>Cancel</Button> : null}
             </div>
           </FormRow>
-        </form>
+        </form>}
       </SettingsCard>
     </div>
   )
