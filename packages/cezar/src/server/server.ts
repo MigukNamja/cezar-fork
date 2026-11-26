@@ -188,6 +188,7 @@ import { discoverAntigravityModels } from '../core/antigravity-model-catalog.ts'
 import { discoverOpencodeModels } from '../core/opencode-model-catalog.ts';
 import { discoverJunieModels } from '../core/junie-model-catalog.ts';
 import { discoverKimiModels } from '../core/kimi-model-catalog.ts';
+import { discoverPiModels } from '../core/pi-model-catalog.ts';
 import {
   PROVIDER_IDS,
   ProviderAuthService,
@@ -1549,6 +1550,7 @@ export function createAppParts(deps: ServerDeps) {
       cursor: { discover: () => discoverCursorModels() },
       antigravity: { discover: () => discoverAntigravityModels() },
       kimi: { discover: () => discoverKimiModels() },
+      pi: { discover: () => discoverPiModels() },
     },
   });
   // Bookkeeping calls pick their cheap model from the same discovery (#2012).
@@ -2375,7 +2377,7 @@ export function createAppParts(deps: ServerDeps) {
           runner: z.union([z.string(), z.array(z.string()).transform((v) => v[0] as string)]).pipe(modelDiscoveryRunnerSchema),
           refresh: modelsRefreshQuery,
         }),
-        { message: 'runner must be claude, codex, opencode, cursor, junie, antigravity, or kimi' },
+        { message: 'runner must be claude, codex, opencode, cursor, junie, antigravity, kimi, or pi' },
       ),
       async (c) => {
         const query = { data: c.req.valid('query') };
