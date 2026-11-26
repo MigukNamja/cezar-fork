@@ -14,14 +14,16 @@ export { tokenizeManagerBash };
 
 export type BashVerdict = { ok: true } | { ok: false; reason: string };
 
-/** `gh <group> <verb>` that only read. Any flag goes but `--web`, which acts on the desktop. */
+/** `gh <group> <verb>` a manager may run: reads, plus `gh issue create|comment`. Any flag goes but `--web`, which acts on the desktop, and for those two writes the file-reading flags. */
 const GH_READ: Readonly<Record<string, ReadonlySet<string>>> = {
   pr: new Set(['view', 'list', 'diff', 'checks', 'status']),
-  issue: new Set(['view', 'list']),
+  issue: new Set(['view', 'list', 'create', 'comment']),
   run: new Set(['view', 'list']),
   release: new Set(['view', 'list']),
   repo: new Set(['view']),
 };
+const GH_ISSUE_WRITES = new Set(['create', 'comment']);
+const GH_FILE_FLAG = /^(-[A-Za-z]*[Fe][A-Za-z]*|--body-file(=.*)?|--editor|--recover(=.*)?)$/;
 const GH_SEARCH = new Set(['code', 'commits', 'issues', 'prs', 'repos']);
 /** Programs a read may pipe into; each reads only the pipe. */
 export const MANAGER_BASH_FILTERS = ['jq', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'cut'] as const;
@@ -29,7 +31,7 @@ export const MANAGER_BASH_FILTERS = ['jq', 'grep', 'head', 'tail', 'wc', 'sort',
 /** Writes the manager must leave to a task or a proposal card; a user-allowed pattern never covers one. */
 export const MANAGER_BASH_DENIED = [
   'gh pr merge', 'gh pr review', 'gh pr comment', 'gh pr edit', 'gh pr close', 'gh pr ready',
-  'gh issue comment', 'gh issue edit', 'gh issue close', 'gh workflow run', 'gh run rerun', 'git push',
+  'gh issue edit', 'gh issue close', 'gh workflow run', 'gh run rerun', 'git push',
 ];
 
 export const MANAGER_BASH_ALLOWLIST = [
@@ -155,6 +157,8 @@ function primary(argv: string[]): BashVerdict {
   if (group && verb && GH_READ[group]?.has(verb)) {
     const flags = ghReadFlags(rest);
     if (!flags.ok) return flags;
+    const fileFlag = GH_ISSUE_WRITES.has(verb) && group === 'issue' ? rest.find((arg) => GH_FILE_FLAG.test(arg)) : undefined;
+    if (fileFlag !== undefined) return refuse(`\`${fileFlag}\` reads a file or opens an editor; pass the text with -b or --stdin`);
     const host = rest.find((arg) => (group === 'repo' && mayNameHost(arg) && ((arg.match(/\//g) ?? []).length > 1 || /^\S*@\S*:/.test(arg))) || namesOtherHost(arg));
     return host === undefined ? OK : refuse(`\`${host}\` names a host other than github.com`);
   }

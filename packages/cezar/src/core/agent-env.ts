@@ -90,6 +90,12 @@ const BASE_ALLOW_NAMES: ReadonlySet<string> = upperSet([
   'FTP_PROXY',
   'ALL_PROXY',
   'NO_PROXY',
+  // CA bundle paths for a TLS-intercepting proxy: file paths, not credentials. Node reads
+  // `NODE_EXTRA_CA_CERTS`; `gh`, curl, git and Python read these.
+  'SSL_CERT_FILE',
+  'CURL_CA_BUNDLE',
+  'GIT_SSL_CAINFO',
+  'REQUESTS_CA_BUNDLE',
   // Windows equivalents of the above. Without these `nodeSpawn('claude', …)`
   // cannot resolve or launch the binary at all on win32 — the platform is
   // supported (open-in-terminal.ts, open-in-app.ts, process-usage.ts) and

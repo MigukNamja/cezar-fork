@@ -69,6 +69,25 @@ describe('buildChildEnv — least-privilege child env (#427)', () => {
     expect(env.CEZ_MOCK_ARGS_FILE).toBe('/tmp/args');
   });
 
+  it('forwards the CA bundle paths a TLS-intercepting proxy needs, to every backend, and still no host secret', () => {
+    const source = {
+      SSL_CERT_FILE: '/ca/ca.crt',
+      CURL_CA_BUNDLE: '/ca/ca.crt',
+      GIT_SSL_CAINFO: '/ca/ca.crt',
+      REQUESTS_CA_BUNDLE: '/ca/ca.crt',
+      GH_TOKEN: '',
+      GH_HOST: 'ghrwproxy:8443',
+      STRIPE_SECRET_KEY: 'sk_live_supersecretxxxxxxxx',
+    };
+    for (const backend of ['claude', 'pi'] as const) {
+      const env = buildChildEnv({ backend, source });
+      for (const name of ['SSL_CERT_FILE', 'CURL_CA_BUNDLE', 'GIT_SSL_CAINFO', 'REQUESTS_CA_BUNDLE']) expect(env[name], name).toBe('/ca/ca.crt');
+      expect(env.GH_TOKEN).toBe('');
+      expect(env.GH_HOST).toBe('ghrwproxy:8443');
+      expect(env.STRIPE_SECRET_KEY).toBeUndefined();
+    }
+  });
+
   it('applies extraEnv (spec.env) last so per-run vars always win', () => {
     const env = buildChildEnv({
       backend: 'claude',
