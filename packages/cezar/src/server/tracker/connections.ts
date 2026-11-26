@@ -10,18 +10,20 @@ export type { StoredTrackerConnection } from './connection-env.ts';
 
 /** Encrypted managed records; legacy dotenv migrates under the same mutation lock. Not an OS-user/sandbox boundary. */
 /** Recovery needs every ciphertext under a lost key gone before a new key may exist (secrets.ts). */
-const KEY_UNAVAILABLE = 'The secrets data key is unavailable. Unlock the OS keychain or restore ~/.cezar/secrets. If the key is lost, remove every tracker connection (cez tracker-connections list/remove) and unset the unreadable secrets (cezar secrets list/unset), then save again.';
+const keyUnavailable = (store: string): string => `The secrets data key is unavailable. Unlock the OS keychain or restore ${store}. If the key is lost, remove every tracker connection (cezar tracker-connections list/remove) and unset the unreadable secrets (cezar secrets list/unset), then save again.`;
 /** The reader's bound; a write that would exceed it is refused before anything is replaced. */
 const MAX_RECORD_BYTES = 32_768;
 
 export class TrackerConnections {
   private readonly directory: string;
+  private readonly secretsDirectory: string;
   private readonly demo: boolean;
   private readonly vault: SecretStore;
   constructor(env: NodeJS.ProcessEnv = process.env, options: SecretStoreOptions = {}) {
     this.vault = new SecretStore(env, options);
     this.demo = env.CEZ_DRY_RUN === '1';
     this.directory = join(cezarHomeDir(env), 'tracker-connections');
+    this.secretsDirectory = join(cezarHomeDir(env), 'secrets');
   }
   private id(root: string): string { return createHash('sha256').update(root).digest('hex'); }
   private async checkDirectory(): Promise<void> {
@@ -164,8 +166,8 @@ export class TrackerConnections {
       return { record: await this.readId(this.id(canonical)) };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { record: null };
-      if (error instanceof SecretsError) return { record: null, error: KEY_UNAVAILABLE };
-      return { record: null, error: 'Cannot read project credentials. Re-save in Settings or use cez tracker-connections list/remove for local cleanup.' };
+      if (error instanceof SecretsError) return { record: null, error: keyUnavailable(this.secretsDirectory) };
+      return { record: null, error: 'Cannot read project credentials. Re-save in Settings or use cezar tracker-connections list/remove for local cleanup.' };
     }
   }
   async read(root: string): Promise<StoredTrackerConnection | null> {

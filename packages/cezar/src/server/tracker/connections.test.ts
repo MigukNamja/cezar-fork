@@ -375,7 +375,11 @@ it('reads a legacy record without migrating while an established data key is loc
   expect(await new TrackerConnections({ CEZ_HOME: home }, { keychain }).read(root)).toEqual(record);
   expect(await stat(secretPath(home, root, '.env')).catch(() => null)).toBeNull();
   locked = true;
-  expect((await new TrackerConnections({ CEZ_HOME: home }, { keychain }).inspect(root)).error).toContain('data key is unavailable');
+  const message = (await new TrackerConnections({ CEZ_HOME: home }, { keychain }).inspect(root)).error;
+  expect(message).toContain('data key is unavailable');
+  expect(message).toContain(`restore ${join(home, 'secrets')}.`);
+  expect(message).not.toContain('~/.cezar');
+  expect(message).not.toContain('cez tracker');
 });
 
 it('recovers from a lost data key once the unreadable records are removed', async () => {
