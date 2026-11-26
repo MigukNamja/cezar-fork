@@ -258,7 +258,7 @@ describe('useRunnerModels', () => {
 
 describe('useModelRefreshAction', () => {
   it('offers no action for a runner without a host catalog', () => {
-    const { result } = renderHook(() => useModelRefreshAction('pi'), { wrapper: wrapper() })
+    const { result } = renderHook(() => useModelRefreshAction('copilot'), { wrapper: wrapper() })
     expect(result.current).toBeUndefined()
   })
 

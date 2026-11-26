@@ -176,7 +176,7 @@ describe('model option resolution', () => {
     // #794 gave OpenCode a catalog, #784 gave Claude one and #807 gave Cursor one. The contract's
     // list is the single source both the route and the picker compile against — this asserts they
     // still agree on who discovers, and that a runner is never added to it by accident.
-    expect(MODEL_DISCOVERY_RUNNERS).toEqual(['claude', 'codex', 'opencode', 'cursor', 'junie', 'antigravity', 'kimi'])
+    expect(MODEL_DISCOVERY_RUNNERS).toEqual(['claude', 'codex', 'opencode', 'cursor', 'junie', 'antigravity', 'kimi', 'pi'])
     expect(MODEL_DISCOVERY_RUNNERS.every((runner) => runnerDiscoversModels(runner))).toBe(true)
   })
 
@@ -254,6 +254,13 @@ describe('model option resolution', () => {
     }
     // The guard it must NOT lose: a bare id that is unmistakably one single-provider runner's.
     expect(modelConflictsWithRunner('opus', 'codex')).toBe(true)
+  })
+
+  it('pi lists auto plus exactly the discovered ids, and auto alone when discovery fails', () => {
+    const models = [{ id: 'greenpt/glm-5.3-flash', label: 'GLMv5.3f', description: 'via greenpt' }]
+    expect(modelsForRunner('pi', { runner: 'pi', models, source: 'live', stale: false }).map((m) => m.id)).toEqual(['', 'greenpt/glm-5.3-flash'])
+    expect(modelsForRunner('pi', { runner: 'pi', models: [], source: 'unavailable', stale: false }).map((m) => m.id)).toEqual([''])
+    expect(modelsForRunner('opencode', { runner: 'opencode', models, source: 'live', stale: false }).map((m) => m.id)).toEqual(['', 'greenpt/glm-5.3-flash'])
   })
 
   it('names the runner whose catalog is stale or unavailable', () => {
